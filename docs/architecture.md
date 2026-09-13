@@ -25,7 +25,7 @@
 **为什么把 `ai/` 单独成层而不是塞进 `services/`**：
 模型调用是这个系统里最不确定的部分（会超时、会返回坏 JSON、会因为
 `max_tokens` 太小而返回空内容）。把它隔离出来，可以用一个假的
-`LLMClient` 替换掉整个网络依赖，**让 420 个测试一次真实 API 都不打**。
+`LLMClient` 替换掉整个网络依赖，**让 431 个测试一次真实 API 都不打**。
 
 `ai/base.py` 里的 `LLMClient` 是一个 `Protocol`，不是抽象基类。
 这样 `FakeLLMClient` 不需要继承任何东西，也不需要 import openai。

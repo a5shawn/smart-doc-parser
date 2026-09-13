@@ -8,7 +8,7 @@
         dev-db dev-backend dev-frontend install \
         lint fmt test test-unit test-integration check \
         lint-web test-web check-web check-api \
-        migrate revision downgrade db-reset test-db \
+        migrate revision downgrade db-reset \
         gen-api smoke-llm clean
 
 BACKEND := backend

@@ -6,7 +6,7 @@
 把一份发票丢进去，拿到发票号码、购销双方与价税合计。
 
 **它不是 demo。** 分层架构、数据库迁移、异步任务、结构化日志、SSE 实时进度、
-成本核算、Docker 一键部署、420 个后端测试 + 49 个前端测试 —— 这些都是"能上线"与
+成本核算、Docker 一键部署、431 个后端测试 + 49 个前端测试 —— 这些都是"能上线"与
 "能跑通"之间的差距。
 
 ---
@@ -170,7 +170,7 @@ sequenceDiagram
 | SSE 分片通道 | 进程内广播 | 逐字输出数据量太大不适合落库。**尽力而为**，丢了不影响正确性 |
 | 前端 SSE | 手写 `fetch` + `ReadableStream` | `EventSource` 无法设置请求头（带不了 API Key）；axios 不支持流式读取 |
 | PDF 解析 | pypdfium2 主 + pypdf 兜底 | 前者文本质量更好，后者保证在精简镜像里一定能跑 |
-| 配置管理 | 根目录唯一 `.env` | 后端、compose、Vite 三方共用一份，杜绝"本地能跑线上不行" |
+| 配置管理 | 基线 `.env` + 覆盖层 `.env.<环境>` | 后端、compose、Vite 三方共用基线，杜绝"本地能跑线上不行"；差异项集中在覆盖层，一条 `diff` 看完 |
 | 数据库镜像 | pgvector 版 | 阶段一用不到向量能力，但下一个阶段用得上，换镜像不如一开始就选对 |
 
 详见 [`docs/architecture.md`](docs/architecture.md)。
@@ -186,7 +186,7 @@ sequenceDiagram
 | 数据库 | PostgreSQL 16（`pgvector/pgvector:pg16` 镜像） |
 | AI | DeepSeek `deepseek-flash`（OpenAI 兼容接口，JSON mode + 流式） |
 | 部署 | Docker · Docker Compose · nginx |
-| 测试 | pytest（420 项）· Vitest（49 项） |
+| 测试 | pytest（431 项）· Vitest（49 项） |
 
 ---
 
@@ -265,11 +265,13 @@ Demo 只告诉你"能跑"，生产系统要告诉你"跑这一下多少钱"。
 
 ## 环境变量
 
-所有配置集中在**仓库根目录的 `.env`**。后端（pydantic-settings）、
-docker-compose、前端（Vite 的 `envDir`）三方读同一份文件。
+配置在**仓库根目录**，分两层：`.env` 是基线（全部 41 个键），
+`.env.<环境名>` 是覆盖层（只写差异项）。后端（pydantic-settings）、
+docker-compose、前端（Vite 的 `envDir`）三方读同一份基线。
 
 ```bash
-cp .env.example .env
+cp .env.example .env              # 基线，本地开发只需要这一步
+cp .env.production.example .env.production   # 仅生产部署需要
 ```
 
 关键配置（完整清单与说明见 [`.env.example`](.env.example)）：
@@ -352,7 +354,7 @@ make db-reset      # 清空数据库重建（会删除所有数据）
 
 # 其他
 make gen-api       # 由后端生成 OpenAPI schema 并刷新前端 TS 类型
-make smoke-llm     # 用真实 API 跑一次抽取，验证连通性（会消耗约 ¥0.01）
+make smoke-llm     # 用真实 API 跑一次抽取，验证连通性（会消耗约 ¥0.0014）
 ```
 
 ---
@@ -378,7 +380,7 @@ smart-doc-parser/
 │   │   └── ai/                # DeepSeek 客户端、prompt、Schema 校验、模板
 │   ├── alembic/               # 数据库迁移
 │   ├── scripts/               # 运维脚本
-│   └── tests/                 # 420 项测试
+│   └── tests/                 # 431 项测试
 └── frontend/
     ├── src/
     │   ├── api/               # 类型化接口层 + SSE 客户端
@@ -418,6 +420,7 @@ smart-doc-parser/
 | [`docs/api.md`](docs/api.md) | 全部接口、错误码表、SSE 事件协议、curl 示例 |
 | [`docs/deployment.md`](docs/deployment.md) | 云服务器上线步骤、HTTPS、备份、安全加固清单 |
 | [`docs/development.md`](docs/development.md) | 本地开发、如何加模板/加解析器、迁移流程、调试技巧 |
+| [`docs/commands.md`](docs/commands.md) | 全部命令速查，含每条 make 命令背后实际执行的内容 |
 | [`docs/interview-notes.md`](docs/interview-notes.md) | 项目讲解稿、"问题→方案→结果"故事、预设追问与回答 |
 
 ---

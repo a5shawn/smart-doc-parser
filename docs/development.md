@@ -282,7 +282,7 @@ make test-integration  # 只跑集成测试
 ### 模型调用全部打桩
 
 `ai/base.py` 里的 `LLMClient` 是 `Protocol`，测试注入 `FakeLLMClient`。
-**420 个测试一次真实 API 都不打**——快、免费、确定。
+**431 个测试一次真实 API 都不打**——快、免费、确定。
 
 需要构造特定的模型行为时，覆盖 `llm_client` 夹具：
 
@@ -337,7 +337,7 @@ make smoke-llm
 ```
 
 它会用真实 API 跑一次完整抽取，打印 prompt 长度、流式分片的到达节奏、
-token 用量与成本。约消耗 ¥0.01。
+token 用量与成本。约消耗 ¥0.0014。
 
 ### 看 SSE 原始报文
 
