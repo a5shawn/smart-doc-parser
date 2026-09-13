@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://cdn.jsdelivr.net/gh/compose-spec/compose-go@master/schema/compose-spec.json
 # ============================================================================
 # 本地开发覆盖文件。不要单独使用，总是叠加在 docker-compose.yml 之上：
 #
@@ -8,6 +9,9 @@
 #
 # 基础 compose 刻意不把 5432 暴露到宿主机——生产环境让数据库端口裸奔是
 # 常见的安全事故。只有叠加了这个覆盖文件才暴露，且仅绑定回环地址。
+#
+# 首行的 $schema 注释同样是给编辑器看的（这个文件名也匹配 docker-compose*.yml，
+# 一样会被扩展拿去校验）。说明见 docker-compose.yml 顶部。
 # ============================================================================
 
 services:

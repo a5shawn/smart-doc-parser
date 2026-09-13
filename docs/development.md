@@ -364,6 +364,43 @@ allowBuilds:
   core-js: true
 ```
 
+### compose 文件在编辑器里报 `Unable to load schema`
+
+**症状**：打开 `docker-compose.yml` 或 `docker-compose.dev.yml`，VS Code 报
+
+```
+Unable to load schema from
+'https://raw.githubusercontent.com/compose-spec/compose-go/master/schema/compose-spec.json'
+```
+
+**原因**：`redhat.vscode-yaml` 扩展把 `docker-compose*.yml` **内置硬编码**映射到
+上面这个 GitHub raw 地址（注意：SchemaStore 目录里其实**没有** compose 条目，
+所以这不是能通过关掉 `yaml.schemaStore` 解决的问题）。而 `raw.githubusercontent.com`
+在国内通常不可达，拉取就失败了。
+
+**这只是编辑器侧的校验**，`docker compose up` / `build` / CI 完全不受影响。
+
+**处理**：在两个 compose 文件的**首行**加 modeline 指令，指向 jsdelivr 镜像：
+
+```yaml
+# yaml-language-server: $schema=https://cdn.jsdelivr.net/gh/compose-spec/compose-go@master/schema/compose-spec.json
+```
+
+两个细节：
+
+- **必须在第 1 行**。modeline 只认首行，写在注释块里面不生效
+- 指令优先级**高于**扩展的内置映射，所以它能覆盖掉那个不可达的地址
+
+顺带说明为什么 `ci.yml` 不报这个错：它的 schema 来自
+`https://www.schemastore.org/github-workflow.json`，而 `schemastore.org` 是可达的。
+只有 compose 这一个恰好被硬编码到了 GitHub raw。
+
+**验证**：`Cmd+Shift+P` → `Developer: Reload Window`（编辑器侧的诊断状态要重载才刷新），
+然后确认报错消失、字段补全恢复正常；再跑 `docker compose config -q` 确认解析没受影响。
+
+> 换了网络环境后如果 jsdelivr 也不通，把地址换成
+> `https://fastly.jsdelivr.net/...` 或 `https://gcore.jsdelivr.net/...` 即可。
+
 ### httpx 的 ASGITransport 会缓冲整个响应
 
 **症状**：用 `AsyncClient(transport=ASGITransport(app))` 测 SSE 端点会直接挂死。

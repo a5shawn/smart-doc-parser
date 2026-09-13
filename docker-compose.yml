@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://cdn.jsdelivr.net/gh/compose-spec/compose-go@master/schema/compose-spec.json
 # ============================================================================
 # smart-doc-parser 一键部署
 #
@@ -6,6 +7,21 @@
 # 三个服务：db（PostgreSQL）→ backend（FastAPI）→ frontend（nginx + 静态资源）
 # 配置来源：仓库根目录的 .env（唯一事实来源）
 # 本地开发用 docker-compose.dev.yml 叠加，见 Makefile 的 make dev-db
+# ----------------------------------------------------------------------------
+# 上面第一行是给编辑器看的：告诉 YAML 扩展去哪里取校验用的 schema。
+#
+# 为什么用 jsdelivr 而不是官方地址：vscode-yaml 扩展把 docker-compose*.yml
+# 内置映射到 raw.githubusercontent.com 上的 compose 规范，而那个域名在国内
+# 通常不可达——表现为打开这个文件时一直报 "Unable to load schema"。
+# 首行的 modeline 指令优先级最高，会覆盖扩展的内置映射。
+#
+# 官方地址（网络可达时可用）：
+#   https://raw.githubusercontent.com/compose-spec/compose-go/master/schema/compose-spec.json
+# jsdelivr 的备用节点（主节点不通时换一个）：
+#   https://fastly.jsdelivr.net/gh/compose-spec/compose-go@master/schema/compose-spec.json
+#   https://gcore.jsdelivr.net/gh/compose-spec/compose-go@master/schema/compose-spec.json
+#
+# 注：这一行只是 YAML 注释，docker compose 会直接忽略，不影响任何运行行为。
 # ============================================================================
 name: smart-doc-parser
 
