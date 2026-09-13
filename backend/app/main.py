@@ -68,6 +68,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app=settings.APP_NAME,
         version=__version__,
         environment=settings.APP_ENV,
+        # 实际加载了哪几个配置文件。排查"我改了配置怎么不生效"时，
+        # 这是第一个要确认的东西——分环境之后更容易搞错。
+        config_sources=settings.config_sources,
         model=settings.DEEPSEEK_MODEL,
         auth_enabled=settings.AUTH_ENABLED,
     )

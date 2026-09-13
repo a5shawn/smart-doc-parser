@@ -2,17 +2,23 @@
 
 设计要点
 --------
-1. **单一事实来源**：仓库根目录的 ``.env`` 是唯一配置文件，本地裸机、本地 Docker、
+1. **单一事实来源**：仓库根目录的 ``.env`` 是唯一配置基线，本地裸机、本地 Docker、
    线上 Docker 全部读它。后端通过 pydantic-settings 读取，docker-compose 通过
    ``env_file`` 读取，前端通过 Vite 的 ``envDir`` 读取。
-2. **环境变量优先于 .env**：pydantic-settings 的默认优先级就是如此，因此容器里由
+2. **分环境用覆盖层而不是另起一套**：``.env`` 提供全部键的基线值，
+   ``.env.<环境名>`` 只写与基线不同的键，后者覆盖前者。
+   这样改一处基线所有环境受益，两个环境的差异用 ``diff`` 一眼就能看完，
+   也不会出现"两份文件里同一个键改了其中一份"的漂移。
+3. **环境变量优先于 .env**：pydantic-settings 的默认优先级就是如此，因此容器里由
    compose 注入的同名变量会覆盖 .env 中的值——这正是容器内需要用 ``db``
    替代 ``localhost`` 的实现方式。
-3. **fail-fast**：配置错误在进程启动时就抛出，而不是等到第一个请求进来才炸。
+4. **fail-fast**：配置错误在进程启动时就抛出，而不是等到第一个请求进来才炸。
+   生产环境尤其严格：危险的开发默认值会直接拒绝启动，见 ``_validate_production``。
 """
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
@@ -24,14 +30,33 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 # backend/app/core/config.py -> core -> app -> backend -> <仓库根>
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 _ROOT_DIR = _BACKEND_DIR.parent
-_ENV_FILE = _ROOT_DIR / ".env"
+
+#: 本地开发用的默认数据库密码。生产环境若仍是这个值，说明覆盖层漏配了
+#: POSTGRES_PASSWORD——直接拒绝启动，见 ``_validate_production``。
+_DEV_POSTGRES_PASSWORD = "docparser_dev_pwd"  # noqa: S105
+
+#: 配置基线，提供全部键的默认值。
+_ENV_BASE = _ROOT_DIR / ".env"
+
+#: 当前环境名。**必须来自进程环境变量**，不能来自 .env——
+#: 因为要用它决定加载哪个覆盖文件，而那一刻 .env 还没被解析（鸡生蛋）。
+#: 由部署方式决定：容器里由 compose 注入（compose 的 ``--env-file`` 决定其值），
+#: 裸机不设时默认 development。
+_ENV_NAME = (os.environ.get("APP_ENV") or "development").strip().lower()
+
+#: 环境覆盖层。只放与基线不同的键。文件不存在时会被静默跳过
+#: （pydantic-settings 对缺失的 env_file 就是这个行为），
+#: 因此 development 不需要专门建一个文件。
+_ENV_OVERLAY = _ROOT_DIR / f".env.{_ENV_NAME}"
+
+_ENV_FILES = (_ENV_BASE, _ENV_OVERLAY)
 
 
 class Settings(BaseSettings):
     """全部运行时配置。字段名（大写）即环境变量名。"""
 
     model_config = SettingsConfigDict(
-        env_file=_ENV_FILE,
+        env_file=_ENV_FILES,
         env_file_encoding="utf-8",
         # 同一个 .env 里还有 VITE_* 等前端变量，后端不关心，忽略而不是报错
         extra="ignore",
@@ -58,7 +83,7 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = "docparser"
     # 本地开发默认值，方便 clone 下来直接跑。真实部署必须在 .env 里改掉，
     # 且基础 compose 刻意不把 5432 暴露到宿主机（见 docker-compose.dev.yml 的说明）。
-    POSTGRES_PASSWORD: str = "docparser_dev_pwd"  # noqa: S105
+    POSTGRES_PASSWORD: str = _DEV_POSTGRES_PASSWORD
     POSTGRES_DB: str = "smart_doc_parser"
     POSTGRES_TEST_DB: str = "smart_doc_parser_test"
     DB_POOL_SIZE: int = Field(default=5, ge=1, le=50)
@@ -149,6 +174,49 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def _validate_production(self) -> Settings:
+        """生产环境下的危险配置**直接拒绝启动**，而不是只告警。
+
+        与 ``startup_warnings`` 的分工：那里是"能启动但会咬人"，
+        这里是"启动即事故"。开发环境完全不触发，本地体验不受影响。
+
+        **为什么需要硬失败**：分环境用的是「基线 + 覆盖层」结构，
+        覆盖文件只写差异项。漏写任何一项都会**静默继承基线的开发值**——
+        比如忘了覆盖 ``POSTGRES_PASSWORD``，数据库就会用文档里公开的默认密码
+        对外服务。这类错误不报错、不告警，只会安静地上线。
+        覆盖层越薄，这个保护就越重要。
+        """
+        if not self.is_production:
+            return self
+
+        problems: list[str] = []
+
+        if self.POSTGRES_PASSWORD == _DEV_POSTGRES_PASSWORD:
+            problems.append(
+                "POSTGRES_PASSWORD 仍是开发默认值（这个值写在公开的 .env.example 里，"
+                "等于没有密码）。请在 .env.production 中改成强密码。"
+            )
+        if not self.AUTH_ENABLED:
+            problems.append(
+                "AUTH_ENABLED 为 false：接口对公网完全开放，任何人都能上传文件"
+                "并消耗你的大模型额度。请设为 true 并配置 API_KEYS。"
+            )
+        if "*" in self.CORS_ORIGINS:
+            problems.append("CORS_ORIGINS 含 '*'：请收敛为具体域名。")
+        if not self.DEEPSEEK_API_KEY or self.DEEPSEEK_API_KEY.startswith("sk-xxx"):
+            problems.append("DEEPSEEK_API_KEY 未配置或是占位值：抽取任务会在第一个请求上失败。")
+
+        if problems:
+            detail = "\n".join(f"    {i}. {p}" for i, p in enumerate(problems, 1))
+            raise ValueError(
+                f"APP_ENV=production，但检测到 {len(problems)} 项不安全的配置，拒绝启动：\n"
+                f"{detail}\n"
+                "  （这些检查只在 production 下生效，本地开发不受影响。"
+                "完整清单见 .env.production.example）"
+            )
+        return self
+
     # ======================== 派生属性 ========================
 
     def _build_dsn(self, database: str) -> str:
@@ -185,6 +253,21 @@ class Settings(BaseSettings):
         return self.APP_ENV == "production"
 
     @property
+    def config_sources(self) -> list[str]:
+        """本次启动的配置来自哪里。
+
+        会打进启动日志。排查"我改了配置怎么不生效"时，第一个要确认的就是
+        "它到底读了哪个文件"——分了环境之后这个问题更容易发生。
+
+        **容器里通常返回"环境变量"**：镜像构建时 ``.env`` 被 ``.dockerignore``
+        排除了（密钥不该进镜像层），配置全部由 compose 以环境变量注入。
+        此时返回空列表虽然也是事实，但看日志的人会以为配置压根没加载上，
+        反而更难排查——所以显式说明来源。
+        """
+        files = [str(p.relative_to(_ROOT_DIR)) for p in _ENV_FILES if p.exists()]
+        return files or ["环境变量（镜像内无配置文件）"]
+
+    @property
     def max_upload_size_bytes(self) -> int:
         return self.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
@@ -193,15 +276,12 @@ class Settings(BaseSettings):
         """启动时应当打印出来的配置风险提示。
 
         单独抽出来是为了可测试：不阻止启动，但要让运维一眼看见。
+
+        这里只放"能启动但会咬人"的项。生产环境下**会直接导致事故**的配置
+        由 ``_validate_production`` 拦下并拒绝启动，因此不在这里重复——
+        那几条判断在构造成功的 Settings 上不可能成立。
         """
         warnings: list[str] = []
-        if self.is_production and not self.AUTH_ENABLED:
-            warnings.append(
-                "APP_ENV=production 但 AUTH_ENABLED=false：接口对公网完全开放，"
-                "任何人都能上传文件并消耗你的大模型额度。生产环境请开启鉴权。"
-            )
-        if self.is_production and "*" in self.CORS_ORIGINS:
-            warnings.append("APP_ENV=production 且 CORS_ORIGINS 含 '*'：建议收敛为具体域名。")
         if self.BACKEND_WORKERS > 1:
             warnings.append(
                 f"BACKEND_WORKERS={self.BACKEND_WORKERS} > 1：任务调度器与并发信号量是"

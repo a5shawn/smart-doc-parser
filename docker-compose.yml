@@ -36,6 +36,10 @@ services:
     container_name: sdp-db
     restart: unless-stopped
     environment:
+      # 注意：db 服务没有 env_file，完全靠这里的插值取配置。
+      # 插值的来源是 compose 的 --env-file（默认 ./.env），
+      # 所以切生产时**必须**通过 --env-file 把覆盖层带上，
+      # 否则数据库会拿基线的开发密码启动。见 Makefile 的 COMPOSE_PROD。
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
@@ -66,12 +70,24 @@ services:
     image: smart-doc-parser-backend:latest
     container_name: sdp-backend
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      # 基线 + 环境覆盖层，后者只需写与基线不同的键，同名键以后者为准。
+      # 覆盖层的文件名由 APP_ENV 决定，而 APP_ENV 来自 compose 的 --env-file
+      # （见 Makefile 的 COMPOSE 与 COMPOSE_PROD）。
+      # required: false 是为了让 development 不必专门建一个空文件——
+      # 缺文件时静默跳过，而不是报 "env file not found" 拒绝启动。
+      - .env
+      - path: .env.${APP_ENV:-development}
+        required: false
     environment:
       # 容器里的 localhost 指向容器自身。这里覆盖 .env 中的 localhost 为服务名，
       # 是「本地与线上配置统一」方案里唯一的一处环境差异。
       POSTGRES_HOST: db
       UPLOAD_DIR: /app/data/uploads
+      # 必须显式注入，不能只靠上面的 env_file：后端要在**解析 .env 之前**
+      # 就决定读哪个覆盖文件（否则是鸡生蛋），依据只能是进程环境变量。
+      # 它的值来自 compose 插值，也就是 --env-file 的解析结果。
+      APP_ENV: ${APP_ENV:-development}
     depends_on:
       db:
         # 等健康检查通过再启动，否则迁移会连不上数据库

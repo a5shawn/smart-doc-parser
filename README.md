@@ -286,16 +286,40 @@ cp .env.example .env
 | `MAX_INPUT_CHARS` | `100000` | 超长文档的截断阈值 |
 | `FRONTEND_PORT` | `80` | 前端对外端口 |
 
-### 本地和线上配置如何保持统一
+### 分环境：基线 + 覆盖层
+
+配置是**两份文件的叠加**，不是两套独立的配置：
+
+| 文件 | 入库 | 作用 |
+|---|---|---|
+| `.env.example` | ✅ | 完整模板，全部 41 个键，开发取向的默认值 |
+| `.env` | ❌ | 配置**基线**，本地和线上都读它 |
+| `.env.production.example` | ✅ | 生产**只列需要改的 8 个键** |
+| `.env.production` | ❌ | 生产覆盖层，同名键覆盖基线 |
+
+```bash
+make up          # 开发：只读基线
+make up-prod     # 生产：基线 + 覆盖层
+                 # 等价于 docker compose --env-file .env --env-file .env.production up -d --build
+```
+
+**为什么用覆盖层而不是两份完整配置**：两个环境的差异用 `diff` 就能看完，
+改一处基线所有环境受益，也不会出现"同一个键改了两份中的一份"这种漂移。
+
+**代价与防护**：覆盖层只写差异项，漏写任何一项都会**静默继承基线的开发值**。
+所以生产模式下有一道启动预检——密码还是默认值、没开鉴权、CORS 是 `*`、
+密钥是占位值，任何一条都会**拒绝启动并列出全部问题**，而不是带着开发配置上线。
+
+### 本地和线上还有什么差异
 
 | | 后端 | 前端 | 数据库 |
 |---|---|---|---|
 | **Docker 部署** | compose 注入环境变量 | nginx 反代 `/api/` | 服务名 `db` |
-| **本地裸机开发** | 读根目录 `.env` | Vite 代理 `/api/` | `localhost` |
+| **本地裸机开发** | 读基线 `.env` | Vite 代理 `/api/` | `localhost` |
 
-前端的接口地址始终是**相对路径** `/api/v1`，因此两种形态下前端代码完全一致，
-没有任何环境判断。唯一差异是 `POSTGRES_HOST`（容器里 `localhost` 指向容器自身），
-由 compose 显式覆盖，且写在了 `.env.example` 的注释里。
+前端的接口地址始终是**相对路径** `/api/v1`，因此**前端没有任何分环境配置**——
+`VITE_API_BASE_URL` 在开发和生产下是同一个值。唯一差异是 `POSTGRES_HOST`
+（容器里 `localhost` 指向容器自身），由 compose 显式覆盖，写在了 `.env.example` 的注释里。
 
 ---
 
@@ -305,7 +329,8 @@ cp .env.example .env
 make help          # 查看全部命令
 
 # 部署
-make up            # 构建并启动全部服务
+make up            # 构建并启动全部服务（开发配置）
+make up-prod       # 生产部署（基线 + .env.production 覆盖层）
 make down          # 停止（保留数据）
 make logs          # 跟踪日志
 make ps            # 查看状态
@@ -336,7 +361,8 @@ make smoke-llm     # 用真实 API 跑一次抽取，验证连通性（会消耗
 
 ```
 smart-doc-parser/
-├── .env / .env.example        # 唯一配置来源
+├── .env.example               # 配置模板（完整 41 键）
+├── .env.production.example    # 生产覆盖层模板（只列要改的 8 键）
 ├── docker-compose.yml         # 一键部署
 ├── docker-compose.dev.yml     # 本地开发覆盖（只暴露数据库端口）
 ├── Makefile                   # 常用命令

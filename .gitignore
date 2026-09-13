@@ -1,8 +1,14 @@
 # ============ 环境与密钥 ============
+# 忽略所有真实配置文件，包括分环境的覆盖层（.env.production / .env.development）。
+# 只放行 .example 模板——它们没有真实值，是要给人看和复制的。
+#
+# 注意别把 `.env.*` 写成只匹配 `.env.local` 那几条：漏掉一个文件名就等于
+# 把密钥提交进版本库，而这类事故在 push 之前几乎不可能被发现。
 .env
 .env.local
-.env.*.local
+.env.*
 !.env.example
+!.env.*.example
 
 # ============ Python / uv ============
 __pycache__/

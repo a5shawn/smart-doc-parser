@@ -4,7 +4,7 @@
 # ============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help up down restart build logs ps shell-backend shell-db \
+.PHONY: help up up-prod down restart build logs ps shell-backend shell-db \
         dev-db dev-backend dev-frontend install \
         lint fmt test test-unit test-integration check \
         lint-web test-web check-web check-api \
@@ -13,8 +13,22 @@
 
 BACKEND := backend
 FRONTEND := frontend
+
 COMPOSE := docker compose
 COMPOSE_DEV := docker compose -f docker-compose.yml -f docker-compose.dev.yml
+
+# ---------------------------------------------------------------------------
+# 生产：基线 + 覆盖层，同名键以后者为准。这是所有 compose 命令的收口点。
+#
+# 为什么两个 --env-file 都要写：它以「替换」而非「追加」的方式覆盖默认的
+# ./.env，只写 .env.production 的话基线就丢了，所有不在覆盖层里的键会退回
+# 代码内置的默认值——包括数据库密码。
+#
+# 还要注意 --env-file 管的是 compose 文件里 ${...} 的插值（ports、build args、
+# environment 块），而服务上的 env_file: 管的是注入容器的变量，是两套机制。
+# 两套都要带上覆盖层，否则会出现"端口变了但容器里没变"这类错位。
+# ---------------------------------------------------------------------------
+COMPOSE_PROD := docker compose --env-file .env --env-file .env.production
 
 ## ------------------------------ 帮助 ------------------------------
 help: ## 显示所有可用命令
@@ -22,8 +36,17 @@ help: ## 显示所有可用命令
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 ## --------------------------- Docker 部署 ---------------------------
-up: ## 构建并启动全部服务（db + backend + frontend）
+up: ## 构建并启动全部服务（开发配置：基线 .env）
 	$(COMPOSE) up -d --build
+
+up-prod: ## 生产部署（基线 .env + 覆盖层 .env.production）
+	@test -f .env || { \
+		echo "缺少 .env。请先执行：cp .env.example .env"; exit 1; }
+	@test -f .env.production || { \
+		echo "缺少 .env.production。请先执行："; \
+		echo "    cp .env.production.example .env.production"; \
+		echo "然后填入真实的密钥与密码。"; exit 1; }
+	$(COMPOSE_PROD) up -d --build
 
 down: ## 停止并移除全部容器（保留数据卷）
 	$(COMPOSE) down

@@ -80,30 +80,48 @@ sudo systemctl daemon-reload && sudo systemctl restart docker
 
 ### 2.3 部署
 
+配置分两层：**基线** + **生产覆盖层**。服务器上两份都要有。
+
 ```bash
 git clone <你的仓库地址> smart-doc-parser
 cd smart-doc-parser
+
+# 1. 基线：全部 41 个键，基本用默认值即可，不用改
 cp .env.example .env
-vim .env      # 至少改这三项
+
+# 2. 生产覆盖层：只写需要改的 8 个键
+cp .env.production.example .env.production
+vim .env.production
 ```
 
-```bash
-# ---- 必须修改 ----
-DEEPSEEK_API_KEY=sk-你的真实密钥
-AUTH_ENABLED=true                    # 公网部署必须开启
-API_KEYS=<openssl rand -hex 24>      # 生成一个强密钥
+`.env.production` 里逐项填真实值（每一项都是必改项）：
 
-# ---- 生产建议 ----
-APP_ENV=production                   # 启用更严格的启动校验
+```bash
+APP_ENV=production                   # 决定加载哪个覆盖层，必须在这一层设置
 LOG_JSON=true                        # 结构化日志，便于采集
+POSTGRES_PASSWORD=<openssl rand -base64 24>
+AUTH_ENABLED=true                    # 公网部署必须开启
+API_KEYS=<openssl rand -hex 24>
 CORS_ORIGINS=https://你的域名         # 不要用 *
-POSTGRES_PASSWORD=<强密码>            # 不要用默认值
+DEEPSEEK_API_KEY=sk-你的真实密钥
 ```
 
 ```bash
-docker compose up -d --build
+make up-prod                         # 基线 + 覆盖层
 docker compose ps
 ```
+
+> **别用 `docker compose up -d --build`**（不带 `--env-file`）。那样只会读基线，
+> 数据库会用 `.env.example` 里公开的默认密码启动。后端的生产预检会拦住这种情况
+> 并拒绝启动——但那是在容器起来之后，不如一开始就走对命令。
+>
+> `make up-prod` 展开后是：
+> `docker compose --env-file .env --env-file .env.production up -d --build`
+> 两个 `--env-file` 都要写：它是**替换**而非追加默认的 `./.env`，
+> 只写覆盖层的话基线就丢了。
+
+> **别忘了 `.env.production` 也在 `.gitignore` 里**。它含真实密钥，
+> 不要提交。服务器上手工维护，并记着同步到你的密钥备份里。
 
 ### 2.4 配置 HTTPS
 
@@ -164,7 +182,10 @@ server {
 
 部署完逐条确认：
 
+- [ ] 用的是 `make up-prod`（不是 `docker compose up`）
 - [ ] `docker compose ps` 三个服务都是 `healthy`
+- [ ] **启动日志里 `config_sources` 是 `[".env", ".env.production"]`** ——
+      只看到 `.env` 说明覆盖层没加载上，此时跑的是开发配置
 - [ ] `curl http://localhost/api/v1/health/ready` 返回 `{"status":"ok","database":"ok"}`
 - [ ] `AUTH_ENABLED=true`，且不带密钥访问业务接口返回 401
 - [ ] `CORS_ORIGINS` 已收敛为具体域名（不是 `*`）

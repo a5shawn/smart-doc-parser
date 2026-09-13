@@ -41,15 +41,39 @@ make dev-frontend     # → http://localhost:5173
 
 ### 配置从哪来
 
-只有一个来源：**仓库根目录的 `.env`**。
+来源是**仓库根目录的两份文件叠加**：`.env`（基线）+ `.env.<环境名>`（覆盖层）。
 
 | 谁 | 怎么读 |
 |---|---|
-| 后端 | `pydantic-settings` 的 `env_file` 指向根目录 |
-| 前端 | `vite.config.ts` 的 `envDir: '..'` |
-| docker-compose | `env_file: .env` |
+| 后端 | `pydantic-settings`，`env_file=(.env, .env.<APP_ENV>)` |
+| 前端 | `vite.config.ts` 的 `envDir: '..'`（只读 `VITE_*`） |
+| docker-compose | 服务上的 `env_file:` + 命令行 `--env-file` |
 
-改配置只需要动一个文件。`frontend/.env` 这种文件**不应该存在**。
+本地开发只会用到基线，**不需要建 `.env.development`**——覆盖层文件不存在时会被
+静默跳过。生产环境才需要 `.env.production`，见 [`deployment.md`](deployment.md)。
+
+`frontend/.env` 这种文件**不应该存在**：前端的接口地址是相对路径，
+开发和生产用的是同一个值，没有任何需要分环境的东西。
+
+### 排查"改了配置怎么不生效"
+
+先看启动日志里的 `config_sources`：
+
+```json
+{"event": "application_starting", "config_sources": [".env", ".env.production"], ...}
+```
+
+它列出**实际加载了哪几个文件**。只看到 `.env` 就说明覆盖层没被加载——
+最常见的原因是启动时忘了带 `--env-file`，而不是配置写错了。
+
+两个容易混的机制，改配置前要分清：
+
+| 机制 | 管什么 | 谁来驱动 |
+|---|---|---|
+| compose 的 `--env-file` | compose 文件里 `${VAR}` 的插值（ports、build args、`environment:` 块） | 命令行 |
+| 服务上的 `env_file:` | 注入到容器里的变量 | compose 文件 |
+
+**两套都要带上覆盖层**，只带一个会出现"端口变了但容器里没变"这类错位。
 
 ---
 
