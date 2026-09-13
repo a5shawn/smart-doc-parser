@@ -1,0 +1,245 @@
+# ============================================================================
+# CI —— 四条独立的质量门禁
+#
+#   backend   后端：ruff 静态检查 + 格式校验 + 真实 PostgreSQL 上的测试与覆盖率
+#   frontend  前端：eslint + vue-tsc 类型检查 + vitest + 生产构建
+#   contract  契约漂移：重新生成 OpenAPI 与 TS 类型，比对是否与仓库一致
+#   docker    镜像构建：确认两个 Dockerfile 在干净机器上仍然可构建
+#
+# 前三条与本地 `make check` / `make check-web` 跑的是同一组命令，
+# 因此"本地过了 CI 就不会红"这句话是成立的。
+# ============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  # 允许手动触发（例如想在合并前先跑一遍）
+  workflow_dispatch:
+
+# 同一分支连续推送时取消上一次未跑完的任务，省额度也更快看到结果
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "24"
+
+jobs:
+  # --------------------------------------------------------------------------
+  # 后端
+  # --------------------------------------------------------------------------
+  backend:
+    name: 后端（ruff + pytest）
+    runs-on: ubuntu-latest
+
+    # 测试跑在**真实的 PostgreSQL** 上而不是 SQLite：
+    # 项目大量使用 JSONB、原生枚举、gen_random_uuid()，换库测试等于测了个不存在的系统。
+    # 镜像与生产保持一致（pgvector/pgvector:pg16），
+    # 这样"本地通过、CI 通过、线上炸"这类环境差异从源头被排除掉。
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: docparser
+          POSTGRES_PASSWORD: docparser_ci_pwd
+          POSTGRES_DB: smart_doc_parser
+          POSTGRES_TEST_DB: smart_doc_parser_test
+        ports:
+          - 5432:5432
+        # 复用仓库里的初始化脚本创建测试库，而不是在 workflow 里另写一份 SQL。
+        # 两份脚本一定会漂移，而漂移的那一份永远不会被发现。
+        volumes:
+          - ${{ github.workspace }}/docker/postgres/init-test-db.sh:/docker-entrypoint-initdb.d/10-init-test-db.sh:ro
+        options: >-
+          --health-cmd "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: docparser
+      POSTGRES_PASSWORD: docparser_ci_pwd
+      POSTGRES_DB: smart_doc_parser
+      POSTGRES_TEST_DB: smart_doc_parser_test
+      # 占位值。全部 418 个测试都注入 FakeLLMClient，**一次真实 API 都不打**——
+      # 这既是为了不烧钱，也是为了测试结果确定、可在无网络环境下复现。
+      DEEPSEEK_API_KEY: sk-ci-placeholder-never-used
+      LOG_JSON: "true"
+      AUTH_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.7"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 安装依赖
+        working-directory: backend
+        run: uv sync --frozen
+
+      - name: 静态检查（ruff check）
+        working-directory: backend
+        run: uv run ruff check .
+
+      - name: 格式校验（ruff format --check）
+        working-directory: backend
+        run: uv run ruff format --check .
+
+      # 集成测试夹具会对测试库执行 `alembic upgrade head`，
+      # 因此迁移脚本本身也被纳入验证，而不只是模型定义。
+      - name: 测试（含覆盖率门禁）
+        working-directory: backend
+        run: |
+          uv run pytest \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-fail-under=80
+
+      # 迁移必须是可逆的。autogenerate 处理不了 PostgreSQL 原生枚举的删除，
+      # downgrade 里漏写 DROP TYPE 时，只有跑一次往返才能发现。
+      - name: 迁移往返检查（upgrade → downgrade → upgrade）
+        working-directory: backend
+        env:
+          POSTGRES_DB: smart_doc_parser_test
+        run: |
+          uv run alembic upgrade head
+          uv run alembic downgrade base
+          uv run alembic upgrade head
+
+  # --------------------------------------------------------------------------
+  # 前端
+  # --------------------------------------------------------------------------
+  frontend:
+    name: 前端（lint + 类型 + 单测 + 构建）
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm 必须在 setup-node 之前安装，否则 setup-node 的 `cache: pnpm` 找不到可执行文件
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: 安装依赖
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: 代码检查（eslint）
+        working-directory: frontend
+        run: pnpm lint
+
+      - name: 类型检查（vue-tsc）
+        working-directory: frontend
+        run: pnpm type-check
+
+      - name: 单元测试（vitest）
+        working-directory: frontend
+        run: pnpm test:unit
+
+      - name: 生产构建
+        working-directory: frontend
+        run: pnpm build
+
+  # --------------------------------------------------------------------------
+  # 契约漂移
+  # --------------------------------------------------------------------------
+  contract:
+    name: 契约漂移（OpenAPI / TS 类型）
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.7"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: 安装依赖
+        run: |
+          cd backend && uv sync --frozen
+          cd ../frontend && pnpm install --frozen-lockfile
+
+      # export_openapi.py 不执行 lifespan，因此不连数据库，无需 service 容器
+      - name: 重新生成 OpenAPI 与 TS 类型
+        run: make gen-api
+
+      # 后端改了字段却忘了重新生成类型时，tsc 照样能过（前端用的是旧类型），
+      # 一直到线上才发现读不到字段。这条检查的成本近乎为零，收益却很高。
+      - name: 检查是否有漂移
+        run: |
+          if ! git diff --exit-code -- docs/openapi.json frontend/src/api/types.gen.ts; then
+            echo ""
+            echo "::error::接口契约与代码不一致。请在本地执行 make gen-api 并提交生成结果。"
+            exit 1
+          fi
+          echo "契约一致，无漂移。"
+
+  # --------------------------------------------------------------------------
+  # 镜像构建
+  # --------------------------------------------------------------------------
+  docker:
+    name: 镜像构建
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # 只构建不推送。目的是确认两个 Dockerfile 在**干净的机器**上仍然能构建——
+      # 本地构建成功常常依赖残留的缓存层或未提交的文件。
+      - name: 构建后端镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: false
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      # 与 docker-compose.yml 一致，前端构建上下文就是 frontend/。
+      # 仓库根目录的 .env 不在这个上下文里，Vite 会跳过它，
+      # 由 Dockerfile 里的 ENV VITE_API_BASE_URL 兜底——这正是生产构建的真实路径。
+      - name: 构建前端镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: false
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend

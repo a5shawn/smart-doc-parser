@@ -1,0 +1,130 @@
+[project]
+name = "smart-doc-parser"
+version = "0.1.0"
+description = "智能文档解析服务：上传 PDF/Word，用大模型抽取结构化字段，返回可校验的 JSON"
+readme = "../README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+
+dependencies = [
+    # --- Web 框架 ---
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.52.4",
+    "python-multipart>=0.0.32",
+    # --- 配置与校验 ---
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+    "jsonschema>=4.26.0",
+    # --- 数据库 ---
+    "sqlalchemy[asyncio]>=2.0.52",
+    "asyncpg>=0.31.0",
+    "alembic>=1.20.0",
+    # --- 大模型 ---
+    "openai>=3.13.0",
+    "tenacity>=9.1.4",
+    # --- 文档解析 ---
+    # pypdfium2 是主解析器（文本质量更好），pypdf 是纯 Python 兜底，
+    # 运行时若 pypdfium2 无法加载（缺少系统库等）会自动降级。见 app/services/parsing/pdf.py
+    "pypdfium2>=5.13.0",
+    "pypdf>=6.18.1",
+    "python-docx>=1.2.0",
+    # --- 可观测性 ---
+    "structlog>=26.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.7",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=6.0.0",
+    "httpx>=0.28.1",
+]
+
+# 这是一个应用（不是要发布到 PyPI 的包），因此不让 uv 构建安装项目本身。
+# 好处：`uv sync` 只装依赖，`app` 直接以工作目录下的普通包被导入，改代码无需重装。
+[tool.uv]
+package = false
+
+# ============================================================================
+# ruff —— 静态检查 + 格式化（替代 black / isort / flake8 全套）
+# ============================================================================
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["app", "tests", "scripts"]
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle 错误
+    "W",     # pycodestyle 警告
+    "F",     # pyflakes（未使用变量、未定义名称等）
+    "I",     # isort（import 排序）
+    "N",     # pep8-naming
+    "UP",    # pyupgrade（用现代语法）
+    "B",     # flake8-bugbear（常见陷阱）
+    "C4",    # flake8-comprehensions
+    "SIM",   # flake8-simplify
+    "ASYNC", # flake8-async（异步代码陷阱）
+    "RUF",   # ruff 自有规则
+    "PTH",   # 用 pathlib 替代 os.path
+    "RET",   # 返回值简化
+    "TID",   # import 整理
+    "T20",   # 禁止 print
+    "S",     # bandit（安全）
+    "ARG",   # 未使用的参数
+]
+ignore = [
+    "B008", # FastAPI 的 Depends()/Query() 必须写在默认值位置，这是框架要求
+    "S101", # 测试中大量使用 assert
+    "RUF001", "RUF002", "RUF003", # 允许中文标点出现在字符串与注释里
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试不需要安全扫描，也允许魔法数字与未使用参数；
+# 夹具生成脚本需要在终端输出进度，因此放开 print
+"tests/**" = ["S", "ARG", "T201"]
+# 迁移脚本由 alembic 自动生成，不强制风格
+"alembic/**" = ["E501", "I001"]
+# 运维/调试脚本允许 print 输出
+"scripts/**" = ["T201", "S"]
+# prompt 文案是内容而非代码，长行由语义决定。拆行会让需要反复打磨的
+# 提示词变得难读难改——而提示词恰恰是这类项目里最常调整的部分。
+"app/ai/prompts/**" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"
+
+# ============================================================================
+# pytest
+# ============================================================================
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-q --strict-markers --strict-config"
+markers = [
+    "integration: 需要真实 PostgreSQL 的集成测试",
+]
+filterwarnings = [
+    "error::DeprecationWarning:app.*",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/main.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

@@ -1,0 +1,112 @@
+{
+  "key": "invoice",
+  "name": "发票",
+  "description": "增值税发票的票面信息抽取：发票号码、购销双方、金额与税额",
+  "doc_types": ["增值税专用发票", "增值税普通发票", "电子发票"],
+  "prompt_hint": "所有金额只填数字，不要带货币符号、千分位或“元”字。发票号码、纳税人识别号这类标识务必逐位核对，不要补零也不要省略。价税合计应等于金额与税额之和，如果对不上请以票面印刷的价税合计为准。",
+  "fields": [
+    {
+      "name": "invoice_number",
+      "label": "发票号码",
+      "type": "string",
+      "description": "发票号码，逐位照抄不要增删字符",
+      "required": true
+    },
+    {
+      "name": "invoice_code",
+      "label": "发票代码",
+      "type": "string",
+      "description": "发票代码。数电票可能没有此项"
+    },
+    {
+      "name": "invoice_type",
+      "label": "发票类型",
+      "type": "string",
+      "description": "发票的种类",
+      "enum": ["增值税专用发票", "增值税普通发票", "电子发票", "其他"]
+    },
+    {
+      "name": "invoice_date",
+      "label": "开票日期",
+      "type": "string",
+      "description": "开票日期，格式 YYYY-MM-DD"
+    },
+    {
+      "name": "buyer_name",
+      "label": "购买方名称",
+      "type": "string",
+      "description": "购买方公司全称"
+    },
+    {
+      "name": "buyer_tax_id",
+      "label": "购买方纳税人识别号",
+      "type": "string",
+      "description": "购买方的纳税人识别号（统一社会信用代码）"
+    },
+    {
+      "name": "seller_name",
+      "label": "销售方名称",
+      "type": "string",
+      "description": "销售方公司全称"
+    },
+    {
+      "name": "seller_tax_id",
+      "label": "销售方纳税人识别号",
+      "type": "string",
+      "description": "销售方的纳税人识别号（统一社会信用代码）"
+    },
+    {
+      "name": "amount",
+      "label": "金额",
+      "type": "number",
+      "description": "不含税金额的数值"
+    },
+    {
+      "name": "tax_amount",
+      "label": "税额",
+      "type": "number",
+      "description": "税额的数值"
+    },
+    {
+      "name": "total_amount",
+      "label": "价税合计",
+      "type": "number",
+      "description": "价税合计金额的数值，这是最重要的字段",
+      "required": true
+    },
+    {
+      "name": "items",
+      "label": "货物或服务明细",
+      "type": "array",
+      "item_type": "object",
+      "description": "发票明细行",
+      "item_fields": [
+        {
+          "name": "name",
+          "label": "名称",
+          "type": "string",
+          "description": "货物或应税劳务名称",
+          "required": true
+        },
+        {
+          "name": "quantity",
+          "label": "数量",
+          "type": "number",
+          "description": "数量"
+        },
+        {
+          "name": "unit_price",
+          "label": "单价",
+          "type": "number",
+          "description": "不含税单价"
+        },
+        {
+          "name": "amount",
+          "label": "金额",
+          "type": "number",
+          "description": "该行的不含税金额"
+        }
+      ]
+    }
+  ]
+}

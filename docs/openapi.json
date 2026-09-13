@@ -1,0 +1,2042 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "智能文档解析服务",
+    "description": "\n把 PDF / Word 文档丢进来，用大模型抽取成结构化 JSON。\n\n- **多模板**：内置合同、简历、发票三套模板，也支持自定义 JSON Schema\n- **实时进度**：通过 SSE 推送解析与抽取进度，可看到模型逐字生成的内容\n- **成本可见**：每个任务都记录 token 用量与实际花费\n",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/health/live": {
+      "get": {
+        "tags": [
+          "健康检查"
+        ],
+        "summary": "存活探针",
+        "description": "只证明进程活着，不碰数据库。",
+        "operationId": "liveness",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LivenessOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health/ready": {
+      "get": {
+        "tags": [
+          "健康检查"
+        ],
+        "summary": "就绪探针",
+        "description": "确认依赖可用。数据库连不上时返回 503，让编排系统把流量摘掉。",
+        "operationId": "readiness",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/stream": {
+      "get": {
+        "tags": [
+          "任务"
+        ],
+        "summary": "任务进度流（SSE）",
+        "description": "服务端推送任务状态、进度与模型的流式输出。\n\n**全局单流**：不传参数时跟踪所有进行中的任务，事件里带 `task_id` 由前端分发。\n传 `batch_id` 只看某一批；传 `task_ids` 只看指定任务，且全部结束后连接会自动关闭。\n\n事件类型：`snapshot`（连接时的全量快照）/ `progress` / `chunk`（模型输出分片）/ `done`（进入终态）。以 `:` 开头的行是心跳注释。",
+        "operationId": "streamTasks",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_ids",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "逗号分隔的任务 ID，只看这些任务",
+              "title": "Task Ids"
+            },
+            "description": "逗号分隔的任务 ID，只看这些任务"
+          },
+          {
+            "name": "batch_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只看某个批次",
+              "title": "Batch Id"
+            },
+            "description": "只看某个批次"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks": {
+      "post": {
+        "tags": [
+          "任务"
+        ],
+        "summary": "创建抽取任务",
+        "description": "为一批文档创建抽取任务并立即交给后台执行，**接口立刻返回不等待结果**。\n\n进度通过 `GET /tasks/stream`（SSE）推送，或轮询 `GET /tasks/{id}`。\n\n同一份文档可以用不同模板反复抽取，不需要重新上传文件。",
+        "operationId": "createTasks",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCreateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "任务"
+        ],
+        "summary": "任务列表",
+        "operationId": "listTasks",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TaskStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按状态过滤",
+              "title": "Status"
+            },
+            "description": "按状态过滤"
+          },
+          {
+            "name": "template_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按模板过滤",
+              "title": "Template Key"
+            },
+            "description": "按模板过滤"
+          },
+          {
+            "name": "batch_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按批次过滤",
+              "title": "Batch Id"
+            },
+            "description": "按批次过滤"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "页码，从 1 开始",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "页码，从 1 开始"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "每页条数，最大 100",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "每页条数，最大 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_TaskOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}": {
+      "get": {
+        "tags": [
+          "任务"
+        ],
+        "summary": "任务详情",
+        "operationId": "getTask",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "任务"
+        ],
+        "summary": "删除任务",
+        "operationId": "deleteTask",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDeleteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/retry": {
+      "post": {
+        "tags": [
+          "任务"
+        ],
+        "summary": "重新抽取",
+        "description": "把失败或已完成的任务重置为待执行并重新排队。\n\n**会删除上一次的抽取结果**——不删的话，重跑失败时界面上会出现「任务失败但结果还在」的矛盾状态。",
+        "operationId": "retryTask",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/result": {
+      "get": {
+        "tags": [
+          "任务"
+        ],
+        "summary": "获取抽取结果",
+        "description": "返回校验并规范化后的结构化数据，以及模型原始输出。\n\n`warnings` 是非致命问题清单（字段缺失、类型被矫正、文档被截断等），用户可据此判断结果是否需要人工复核。",
+        "operationId": "getResult",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionResultOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents": {
+      "post": {
+        "tags": [
+          "文档"
+        ],
+        "summary": "上传文档（1 份或多份）",
+        "description": "接收 1~N 个文件，逐个校验、解析并入库。\n\n**部分成功语义**：单个文件失败不会让整批回滚，失败项会出现在 `rejected` 中。\n内容完全相同的文件不会重复存储，会出现在 `duplicate` 中并复用已有记录。\n\n状态码固定为 200：请求本身处理成功了，每个文件的结果在响应体里分别给出。用单一状态码表达「3 个成功 1 个失败」既做不到也不直观。",
+        "operationId": "uploadDocuments",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_uploadDocuments"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchUploadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "文档"
+        ],
+        "summary": "文档列表",
+        "operationId": "listDocuments",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "页码，从 1 开始",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "页码，从 1 开始"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "每页条数，最大 100",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "每页条数，最大 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_DocumentOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{document_id}": {
+      "get": {
+        "tags": [
+          "文档"
+        ],
+        "summary": "文档详情",
+        "operationId": "getDocument",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "文档"
+        ],
+        "summary": "删除文档",
+        "description": "**不可恢复的硬删除**。外键上是 ON DELETE CASCADE，该文档下的所有抽取任务与结果会一并被数据库删除。",
+        "operationId": "deleteDocument",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDeleteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/templates": {
+      "get": {
+        "tags": [
+          "模板"
+        ],
+        "summary": "模板列表",
+        "description": "返回全部可用模板：3 套内置模板（合同 / 简历 / 发票）在前，用户自定义模板在后。\n\n每个字段都带中文 `label`，前端据此渲染结果卡片——用户看到的是「甲方」而不是 `party_a`。",
+        "operationId": "listTemplates",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TemplateOut"
+                  },
+                  "type": "array",
+                  "title": "Response Listtemplates"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "模板"
+        ],
+        "summary": "新建自定义模板",
+        "description": "传入标准 JSON Schema（Draft 2020-12），根节点必须是 object。\n\nSchema 在入库前就会做完整性与合法性校验——**不能让一个语法错误的 schema 存进数据库**，否则用户要到建任务时才发现，而且报错点离问题源头很远。",
+        "operationId": "createCustomTemplate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomTemplateCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomTemplateOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/api/v1/templates/{template_id}": {
+      "delete": {
+        "tags": [
+          "模板"
+        ],
+        "summary": "删除自定义模板",
+        "description": "内置模板不可删除。\n\n历史任务存的是模板快照（名称 + schema），因此删除模板**不影响**历史任务的展示与重跑。但有任务正在使用该模板时会拒绝删除。",
+        "operationId": "deleteCustomTemplate",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Template Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateDeleteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/stats": {
+      "get": {
+        "tags": [
+          "统计"
+        ],
+        "summary": "用量与成本统计",
+        "description": "累计的 token 用量、实际花费与成功率。\n\n这组数字用来回答「这个功能一个月要花多少钱」「调大 max_tokens 值不值」，而不是把成本藏起来等月底看账单。",
+        "operationId": "getStats",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BatchUploadResponse": {
+        "properties": {
+          "accepted": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentOut"
+            },
+            "type": "array",
+            "title": "Accepted",
+            "description": "新入库的文档"
+          },
+          "duplicate": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentOut"
+            },
+            "type": "array",
+            "title": "Duplicate",
+            "description": "内容已存在，直接复用已有记录"
+          },
+          "rejected": {
+            "items": {
+              "$ref": "#/components/schemas/RejectedUpload"
+            },
+            "type": "array",
+            "title": "Rejected",
+            "description": "校验未通过的文件"
+          }
+        },
+        "type": "object",
+        "title": "BatchUploadResponse",
+        "description": "批量上传结果。\n\n采用「部分成功」语义：一个坏文件不会让整批回滚。\n用户拖 20 个文件进来时，因为其中一个格式不对就全军覆没是最反直觉的行为。"
+      },
+      "Body_uploadDocuments": {
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Files",
+            "description": "待上传的文件，支持 .pdf / .docx / .txt / .md"
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "Body_uploadDocuments"
+      },
+      "CustomTemplateCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "description": "模板名称，需唯一"
+          },
+          "schema": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Schema",
+            "description": "标准 JSON Schema（Draft 2020-12），根节点必须是 object"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "prompt_hint": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Hint",
+            "description": "附加的业务规则，例如金额单位要求"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "schema"
+        ],
+        "title": "CustomTemplateCreate",
+        "description": "新建自定义模板。\n\n字段名用 ``json_schema`` + 别名 ``schema``：``schema`` 是 Pydantic\nBaseModel 的保留名字，直接用作字段名会冲突，但对外的 JSON 又希望是\n``schema`` 这个自然的名字，所以用别名并开启按名解析。"
+      },
+      "CustomTemplateOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "prompt_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Hint"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "prompt_hint",
+          "created_at"
+        ],
+        "title": "CustomTemplateOut"
+      },
+      "DocumentDeleteResponse": {
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "title": "Deleted"
+          },
+          "cascaded_tasks": {
+            "type": "integer",
+            "title": "Cascaded Tasks",
+            "description": "被连带删除的抽取任务数"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deleted",
+          "cascaded_tasks"
+        ],
+        "title": "DocumentDeleteResponse"
+      },
+      "DocumentDetailOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "description": "用户上传时的原始文件名，仅用于展示"
+          },
+          "mime_type": {
+            "type": "string",
+            "title": "Mime Type"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256",
+            "description": "内容指纹，可用于判断是否为同一份文件"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "char_count": {
+            "type": "integer",
+            "title": "Char Count",
+            "description": "提取到的文本字符数"
+          },
+          "text_preview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text Preview",
+            "description": "正文前 500 字，供列表预览"
+          },
+          "text_status": {
+            "$ref": "#/components/schemas/TextStatus"
+          },
+          "text_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text Error",
+            "description": "提取失败时的原因说明"
+          },
+          "task_count": {
+            "type": "integer",
+            "title": "Task Count",
+            "description": "该文档下的抽取任务数，删除前提示用",
+            "default": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "text_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text Content",
+            "description": "提取出的完整纯文本"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "filename",
+          "mime_type",
+          "size_bytes",
+          "sha256",
+          "page_count",
+          "char_count",
+          "text_preview",
+          "text_status",
+          "created_at"
+        ],
+        "title": "DocumentDetailOut",
+        "description": "文档详情。额外带上提取出的正文，便于排查抽取质量问题。\n\n复用父类的 ``from_row``：``cls`` 在这里是 ``DocumentDetailOut``，\n因此会连同 ``text_content`` 一起映射出来。"
+      },
+      "DocumentOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "description": "用户上传时的原始文件名，仅用于展示"
+          },
+          "mime_type": {
+            "type": "string",
+            "title": "Mime Type"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256",
+            "description": "内容指纹，可用于判断是否为同一份文件"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "char_count": {
+            "type": "integer",
+            "title": "Char Count",
+            "description": "提取到的文本字符数"
+          },
+          "text_preview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text Preview",
+            "description": "正文前 500 字，供列表预览"
+          },
+          "text_status": {
+            "$ref": "#/components/schemas/TextStatus"
+          },
+          "text_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text Error",
+            "description": "提取失败时的原因说明"
+          },
+          "task_count": {
+            "type": "integer",
+            "title": "Task Count",
+            "description": "该文档下的抽取任务数，删除前提示用",
+            "default": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "filename",
+          "mime_type",
+          "size_bytes",
+          "sha256",
+          "page_count",
+          "char_count",
+          "text_preview",
+          "text_status",
+          "created_at"
+        ],
+        "title": "DocumentOut",
+        "description": "文档摘要。不含正文——列表页拉 20 份文档的全文纯属浪费带宽。"
+      },
+      "ExtractionResultOut": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Task Id"
+          },
+          "data": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Data",
+            "description": "校验并规范化后的结构化数据"
+          },
+          "raw_output": {
+            "type": "string",
+            "title": "Raw Output",
+            "description": "模型原始返回，用于排查结果可疑的情况"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/TaskWarningOut"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "非致命问题清单"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "description": "输入文档是否因超长被截断"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "data",
+          "raw_output",
+          "truncated",
+          "created_at"
+        ],
+        "title": "ExtractionResultOut",
+        "description": "抽取结果。"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LivenessOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "app": {
+            "type": "string",
+            "title": "App"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "app",
+          "version",
+          "environment"
+        ],
+        "title": "LivenessOut"
+      },
+      "Page_DocumentOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "符合条件的总条数"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "description": "当前页码，从 1 开始"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "pages": {
+            "type": "integer",
+            "title": "Pages",
+            "description": "总页数。空结果集返回 0 而不是 1，前端据此显示\"暂无数据\"。",
+            "readOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "pages"
+        ],
+        "title": "Page[DocumentOut]"
+      },
+      "Page_TaskOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TaskOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "符合条件的总条数"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "description": "当前页码，从 1 开始"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "pages": {
+            "type": "integer",
+            "title": "Pages",
+            "description": "总页数。空结果集返回 0 而不是 1，前端据此显示\"暂无数据\"。",
+            "readOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "pages"
+        ],
+        "title": "Page[TaskOut]"
+      },
+      "ReadinessOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "database": {
+            "type": "string",
+            "title": "Database"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "database"
+        ],
+        "title": "ReadinessOut"
+      },
+      "RejectedUpload": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename",
+          "code",
+          "message"
+        ],
+        "title": "RejectedUpload",
+        "description": "批量上传中被拒绝的文件。"
+      },
+      "StatsOut": {
+        "properties": {
+          "total_documents": {
+            "type": "integer",
+            "title": "Total Documents",
+            "description": "已上传的文档总数"
+          },
+          "total_tasks": {
+            "type": "integer",
+            "title": "Total Tasks",
+            "description": "抽取任务总数"
+          },
+          "completed_tasks": {
+            "type": "integer",
+            "title": "Completed Tasks"
+          },
+          "failed_tasks": {
+            "type": "integer",
+            "title": "Failed Tasks"
+          },
+          "running_tasks": {
+            "type": "integer",
+            "title": "Running Tasks",
+            "description": "尚未进入终态的任务数"
+          },
+          "total_prompt_tokens": {
+            "type": "integer",
+            "title": "Total Prompt Tokens"
+          },
+          "total_completion_tokens": {
+            "type": "integer",
+            "title": "Total Completion Tokens"
+          },
+          "total_reasoning_tokens": {
+            "type": "integer",
+            "title": "Total Reasoning Tokens",
+            "description": "其中思考 token（已含在 completion 内）"
+          },
+          "total_cached_tokens": {
+            "type": "integer",
+            "title": "Total Cached Tokens",
+            "description": "命中前缀缓存的输入 token"
+          },
+          "total_cost_usd": {
+            "type": "number",
+            "title": "Total Cost Usd"
+          },
+          "avg_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Latency Ms",
+            "description": "已结束任务的平均耗时"
+          },
+          "total_cost_cny": {
+            "type": "number",
+            "title": "Total Cost Cny",
+            "readOnly": true
+          },
+          "success_rate": {
+            "type": "number",
+            "title": "Success Rate",
+            "description": "成功率。\n\n只统计**已结束**的任务——把还在排队的算进分母会让成功率虚低，\n用户看到\"成功率 20%\"会以为系统有问题，实际只是任务还没跑完。",
+            "readOnly": true
+          },
+          "avg_cost_per_task_usd": {
+            "type": "number",
+            "title": "Avg Cost Per Task Usd",
+            "description": "单任务平均成本。用于回答\"调大 max_tokens 值不值\"。",
+            "readOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_documents",
+          "total_tasks",
+          "completed_tasks",
+          "failed_tasks",
+          "running_tasks",
+          "total_prompt_tokens",
+          "total_completion_tokens",
+          "total_reasoning_tokens",
+          "total_cached_tokens",
+          "total_cost_usd",
+          "total_cost_cny",
+          "success_rate",
+          "avg_cost_per_task_usd"
+        ],
+        "title": "StatsOut",
+        "description": "全局用量与成本统计。\n\n\"我知道每份文档花多少钱\"是生产系统与 demo 的分水岭——\n这组数字直接回答\"这个功能一个月要花多少钱\"。"
+      },
+      "TaskCreateRequest": {
+        "properties": {
+          "document_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Document Ids",
+            "description": "要抽取的文档 ID 列表，1~50 个"
+          },
+          "template_key": {
+            "type": "string",
+            "title": "Template Key",
+            "description": "模板标识：内置模板用 contract / resume / invoice，自定义模板用 custom:<uuid>"
+          },
+          "batch_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id",
+            "description": "批次 ID。不传则自动生成；同一批上传的文档传入相同值便于聚合展示"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_ids",
+          "template_key"
+        ],
+        "title": "TaskCreateRequest"
+      },
+      "TaskCreateResponse": {
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Batch Id"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskOut"
+            },
+            "type": "array",
+            "title": "Tasks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch_id",
+          "tasks"
+        ],
+        "title": "TaskCreateResponse"
+      },
+      "TaskDeleteResponse": {
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "title": "Deleted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "title": "TaskDeleteResponse"
+      },
+      "TaskOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id"
+          },
+          "document_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Filename",
+            "description": "来源文档的文件名，列表展示用"
+          },
+          "template_key": {
+            "type": "string",
+            "title": "Template Key"
+          },
+          "template_name": {
+            "type": "string",
+            "title": "Template Name"
+          },
+          "batch_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "progress": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progress"
+          },
+          "stage_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage Message",
+            "description": "当前阶段的中文说明"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "title": "Prompt Tokens",
+            "default": 0
+          },
+          "completion_tokens": {
+            "type": "integer",
+            "title": "Completion Tokens",
+            "default": 0
+          },
+          "reasoning_tokens": {
+            "type": "integer",
+            "title": "Reasoning Tokens",
+            "description": "思考 token，已包含在 completion_tokens 内",
+            "default": 0
+          },
+          "cached_tokens": {
+            "type": "integer",
+            "title": "Cached Tokens",
+            "description": "命中前缀缓存的输入 token",
+            "default": 0
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd",
+            "default": 0.0
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "attempts": {
+            "type": "integer",
+            "title": "Attempts",
+            "default": 0
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "document_id",
+          "template_key",
+          "template_name",
+          "batch_id",
+          "status",
+          "progress",
+          "created_at"
+        ],
+        "title": "TaskOut",
+        "description": "任务摘要。用于列表与进度推送。"
+      },
+      "TaskStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "parsing",
+          "extracting",
+          "validating",
+          "completed",
+          "failed"
+        ],
+        "title": "TaskStatus",
+        "description": "抽取任务状态机。\n\n.. code-block:: text\n\n    pending ──► parsing ──► extracting ──► validating ──► completed\n       │           │            │             │\n       └───────────┴────────────┴─────────────┴────────► failed\n\n只有 completed / failed 是终态。"
+      },
+      "TaskWarningOut": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "出问题的字段路径，如 party_a 或 items[0].name"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind",
+            "description": "问题类型：missing_required / type_coerced / ..."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "kind",
+          "message"
+        ],
+        "title": "TaskWarningOut",
+        "description": "抽取过程中的一条非致命提示。"
+      },
+      "TemplateDeleteResponse": {
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "title": "Deleted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "title": "TemplateDeleteResponse"
+      },
+      "TemplateFieldOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "中文标签，前端用它替代字段名做展示"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required",
+            "default": false
+          },
+          "enum": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Enum"
+          },
+          "item_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Type"
+          },
+          "item_fields": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateFieldOut"
+            },
+            "type": "array",
+            "title": "Item Fields"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "label",
+          "type"
+        ],
+        "title": "TemplateFieldOut",
+        "description": "模板中的一个字段。前端据此渲染结果卡片与表单标签。"
+      },
+      "TemplateOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "doc_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Doc Types",
+            "description": "适用的文档类型"
+          },
+          "prompt_hint": {
+            "type": "string",
+            "title": "Prompt Hint",
+            "default": ""
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateFieldOut"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "builtin": {
+            "type": "boolean",
+            "title": "Builtin",
+            "description": "内置模板不可删除"
+          },
+          "template_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Id"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "name",
+          "builtin"
+        ],
+        "title": "TemplateOut"
+      },
+      "TextStatus": {
+        "type": "string",
+        "enum": [
+          "extracted",
+          "no_text_layer",
+          "failed"
+        ],
+        "title": "TextStatus",
+        "description": "文档文本提取结果。"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "APIKeyHeader": {
+        "type": "apiKey",
+        "description": "接口密钥。仅在 AUTH_ENABLED=true 时校验。也可用 `Authorization: Bearer <key>` 传递。",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "健康检查",
+      "description": "存活与就绪探针，供容器编排使用"
+    },
+    {
+      "name": "文档",
+      "description": "上传、查询与删除文档"
+    },
+    {
+      "name": "任务",
+      "description": "创建抽取任务、查询进度与结果"
+    },
+    {
+      "name": "模板",
+      "description": "内置与自定义抽取模板"
+    },
+    {
+      "name": "统计",
+      "description": "用量与成本统计"
+    }
+  ]
+}

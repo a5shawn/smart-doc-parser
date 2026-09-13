@@ -1,0 +1,79 @@
+{
+  "key": "contract",
+  "name": "合同",
+  "description": "采购、服务、合作类合同的关键要素抽取：甲乙方、金额、日期与主要条款",
+  "doc_types": ["采购合同", "服务合同", "合作协议", "框架协议"],
+  "prompt_hint": "金额只填数字，不要带货币符号、千分位或“元”字；无法判断币种时按人民币处理。日期统一为 YYYY-MM-DD 格式。条款类字段请概括为一句话，不要整段照抄原文。",
+  "fields": [
+    {
+      "name": "contract_name",
+      "label": "合同名称",
+      "type": "string",
+      "description": "合同的标题或名称",
+      "required": true
+    },
+    {
+      "name": "party_a",
+      "label": "甲方",
+      "type": "string",
+      "description": "甲方（通常是采购方/委托方）的完整公司名称，保留全称不要简称",
+      "required": true
+    },
+    {
+      "name": "party_b",
+      "label": "乙方",
+      "type": "string",
+      "description": "乙方（通常是供应方/服务方）的完整公司名称，保留全称不要简称",
+      "required": true
+    },
+    {
+      "name": "amount",
+      "label": "合同金额",
+      "type": "number",
+      "description": "合同总金额的数值部分，例如 1280000。只填数字，不要带币种符号、千分位分隔符或“元”字"
+    },
+    {
+      "name": "currency",
+      "label": "币种",
+      "type": "string",
+      "description": "合同金额对应的币种",
+      "enum": ["CNY", "USD", "EUR", "HKD", "其他"]
+    },
+    {
+      "name": "sign_date",
+      "label": "签订日期",
+      "type": "string",
+      "description": "合同签订日期，格式为 YYYY-MM-DD。若只有年份或年月，按已提供的精度填写"
+    },
+    {
+      "name": "effective_date",
+      "label": "生效日期",
+      "type": "string",
+      "description": "合同生效日期，格式为 YYYY-MM-DD"
+    },
+    {
+      "name": "delivery_date",
+      "label": "交付日期",
+      "type": "string",
+      "description": "约定的交付或完成期限，格式为 YYYY-MM-DD。若是相对期限（如“签订后 30 日内”），原样填写该表述"
+    },
+    {
+      "name": "contract_subject",
+      "label": "合同标的",
+      "type": "string",
+      "description": "合同标的或服务内容的简要概括，一句话以内"
+    },
+    {
+      "name": "payment_terms",
+      "label": "付款方式",
+      "type": "string",
+      "description": "付款安排，例如预付款比例、付款节点等，概括为一句话"
+    },
+    {
+      "name": "breach_clause",
+      "label": "违约责任",
+      "type": "string",
+      "description": "违约责任条款的概括，一句话以内"
+    }
+  ]
+}

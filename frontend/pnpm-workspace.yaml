@@ -1,0 +1,19 @@
+# ============================================================================
+# pnpm 配置
+#
+# 注意两点，都踩过：
+#
+# 1. pnpm 10 起这类设置从 package.json 的 `pnpm` 字段搬到了本文件，
+#    写在 package.json 里会被静默忽略。
+# 2. 字段名是 `allowBuilds`（包名 → 布尔值的映射），
+#    不是 `onlyBuiltDependencies`。
+#
+# 不配的话 `pnpm install` 会以退出码 1 结束，而报错只提示跑
+# `pnpm approve-builds`——一个交互式命令，CI 与 Docker 构建里根本没法用。
+# 更糟的是 pnpm 的依赖状态检查会连带让 `pnpm run <任何脚本>` 一起失败。
+#
+# core-js 是 ant-design-vue → @simonwep/pickr 的传递依赖，
+# 它的 postinstall 只是打印一条赞助信息，允许执行没有任何风险。
+# ============================================================================
+allowBuilds:
+  core-js: true

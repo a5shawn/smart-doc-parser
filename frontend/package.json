@@ -1,0 +1,45 @@
+{
+  "name": "smart-doc-parser-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.24.0",
+  "description": "智能文档解析服务前端：Vue 3 + TypeScript + Vite + Pinia + Ant Design Vue",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "type-check": "vue-tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"src/**/*.{ts,vue,css}\"",
+    "test:unit": "vitest run",
+    "test:watch": "vitest",
+    "api:sync": "openapi-typescript ../docs/openapi.json -o src/api/types.gen.ts"
+  },
+  "dependencies": {
+    "@ant-design/icons-vue": "^7.0.1",
+    "ant-design-vue": "^4.2.6",
+    "axios": "^1.20.0",
+    "dayjs": "^1.11.23",
+    "pinia": "^4.0.3",
+    "vue": "^3.5.42",
+    "vue-router": "^5.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.0.0",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "eslint": "^10.10.0",
+    "eslint-plugin-vue": "^10.11.0",
+    "globals": "^17.12.0",
+    "openapi-typescript": "^7.13.0",
+    "prettier": "^3.9.6",
+    "typescript": "~5.9.0",
+    "typescript-eslint": "^8.70.0",
+    "unplugin-vue-components": "^32.1.0",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0",
+    "vue-tsc": "^3.3.11"
+  }
+}

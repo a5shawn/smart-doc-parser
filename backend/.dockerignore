@@ -1,0 +1,30 @@
+# 虚拟环境：容器里由 uv 重新装，拷进去只会污染镜像（本地是 macOS 的二进制，容器里是 Linux）
+.venv/
+venv/
+
+# 缓存与产物
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# 测试与夹具不进生产镜像
+tests/
+
+# 运行时数据。上传文件必须走数据卷，不能烤进镜像
+data/
+uploads/
+*.log
+
+# 密钥：绝不能进镜像层。容器的配置由 compose 的 env_file 注入
+.env
+.env.*
+
+# 编辑器
+.DS_Store
+.idea/
+.vscode/

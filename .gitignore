@@ -1,0 +1,58 @@
+# ============ 环境与密钥 ============
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ============ Python / uv ============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+ENV/
+.python-version.bak
+*.egg-info/
+dist/
+build/
+.uv/
+
+# ============ 测试与覆盖率 ============
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# ============ 运行时数据 ============
+data/
+uploads/
+*.log
+logs/
+
+# ============ Node / pnpm ============
+node_modules/
+.pnpm-store/
+frontend/dist/
+frontend/dist-ssr/
+frontend/stats.html
+*.tsbuildinfo
+.eslintcache
+.vite/
+
+# ============ 编辑器 / 操作系统 ============
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*~
+
+# ============ Docker ============
+# 本地覆盖文件（含个人配置），不进版本库
+docker-compose.override.yml

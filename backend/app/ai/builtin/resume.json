@@ -1,0 +1,93 @@
+{
+  "key": "resume",
+  "name": "简历",
+  "description": "候选人简历的结构化解析：基本信息、工作经历、技能与教育背景",
+  "doc_types": ["个人简历", "求职简历", "CV"],
+  "prompt_hint": "工作经历必须按时间倒序排列，最近的在前。每段经历的 description 请概括主要职责与成果，保留原文中的量化数据（如“提升 40%”“日均 30 万笔”）。技能请拆成独立的条目，不要把多个技能挤在一个字符串里。",
+  "fields": [
+    {
+      "name": "name",
+      "label": "姓名",
+      "type": "string",
+      "description": "候选人姓名",
+      "required": true
+    },
+    {
+      "name": "phone",
+      "label": "联系电话",
+      "type": "string",
+      "description": "手机号或固定电话，保持原始格式"
+    },
+    {
+      "name": "email",
+      "label": "邮箱",
+      "type": "string",
+      "description": "电子邮箱地址"
+    },
+    {
+      "name": "job_intention",
+      "label": "求职意向",
+      "type": "string",
+      "description": "期望岗位或求职目标"
+    },
+    {
+      "name": "years_of_experience",
+      "label": "工作年限",
+      "type": "number",
+      "description": "累计工作年限（年）。可由工作经历推算，无法判断时不填"
+    },
+    {
+      "name": "education",
+      "label": "教育背景",
+      "type": "string",
+      "description": "最高学历及毕业院校、专业，概括为一句话。例如“某某大学 计算机科学与技术 本科”"
+    },
+    {
+      "name": "skills",
+      "label": "技能清单",
+      "type": "array",
+      "item_type": "string",
+      "description": "技术栈或专业技能列表，每项一个技能，例如 Vue 3、FastAPI、PostgreSQL"
+    },
+    {
+      "name": "work_experience",
+      "label": "工作经历",
+      "type": "array",
+      "item_type": "object",
+      "description": "工作经历列表，按时间倒序",
+      "item_fields": [
+        {
+          "name": "company",
+          "label": "公司",
+          "type": "string",
+          "description": "公司全称",
+          "required": true
+        },
+        {
+          "name": "position",
+          "label": "职位",
+          "type": "string",
+          "description": "担任的岗位名称"
+        },
+        {
+          "name": "start_date",
+          "label": "开始时间",
+          "type": "string",
+          "description": "入职时间，格式 YYYY-MM。若只精确到年则填 YYYY"
+        },
+        {
+          "name": "end_date",
+          "label": "结束时间",
+          "type": "string",
+          "description": "离职时间，格式 YYYY-MM；至今仍在职则填“至今”"
+        },
+        {
+          "name": "description",
+          "label": "主要工作",
+          "type": "string",
+          "description": "主要职责与成果的概括，保留原文中的量化指标"
+        }
+      ]
+    }
+  ]
+}
