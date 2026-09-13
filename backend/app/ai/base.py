@@ -19,9 +19,10 @@ from typing import Protocol, runtime_checkable
 class StreamKind(StrEnum):
     """流式分片的类型。
 
-    deepseek-flash 是推理模型，输出分两个阶段：
+    deepseek-flash 是推理模型，输出可能分两个阶段：
     先吐 ``reasoning_content``（思考过程），再吐 ``content``（最终答案）。
-    两者要分开处理——进度条据此显示"思考中"还是"生成结果"，
+    **是否触发思考是不确定的**——实测同一 prompt 连跑 5 次只有 1 次产生思考内容。
+    两者仍要分开处理：进度条据此显示"思考中"还是"生成结果"，
     界面也可以只展示 content 而不把思考过程混进结果里。
     """
 

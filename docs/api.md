@@ -352,7 +352,7 @@ curl -N "http://localhost/api/v1/tasks/stream?batch_id=8d6e0420-..."
 
 | kind | 含义 |
 |---|---|
-| `reasoning` | 模型的思考过程。推理模型会先输出这个，前端宜默认折叠 |
+| `reasoning` | 模型的思考过程。**是否出现不确定**（实测约 1/5 的调用会产生），前端宜默认折叠 |
 | `content` | 最终答案的正文 |
 | `reset` | **丢弃已累积的内容**。输出被 `max_tokens` 截断时会重跑，此时已推送的分片全部作废 |
 
