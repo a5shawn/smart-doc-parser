@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -29,7 +30,7 @@ class DocumentOut(BaseModel):
     created_at: datetime
 
     @classmethod
-    def from_row(cls, document, task_count: int = 0) -> DocumentOut:
+    def from_row(cls, document, task_count: int = 0) -> Self:
         """由 ORM 对象与任务计数构造。
 
         ``task_count`` 由调用方用一次聚合查询批量算出，避免 N+1。
