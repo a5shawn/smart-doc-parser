@@ -417,6 +417,7 @@ smart-doc-parser/
 | 文档 | 内容 |
 |---|---|
 | [`docs/architecture.md`](docs/architecture.md) | 分层设计、数据模型、状态机、关键技术决策与权衡、扩展路径 |
+| [`docs/database.md`](docs/database.md) | 四张表的完整字段注释、索引与约束、枚举取值、常用查询、改表流程 |
 | [`docs/api.md`](docs/api.md) | 全部接口、错误码表、SSE 事件协议、curl 示例 |
 | [`docs/deployment.md`](docs/deployment.md) | 云服务器上线步骤、HTTPS、备份、安全加固清单 |
 | [`docs/development.md`](docs/development.md) | 本地开发、如何加模板/加解析器、迁移流程、调试技巧 |
